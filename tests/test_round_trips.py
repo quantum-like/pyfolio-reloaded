@@ -256,6 +256,25 @@ class RoundTripTestCase(TestCase):
             expected.sort_index(axis="columns"),
         )
 
+    def test_no_closed_round_trips_returns_empty_frame(self):
+        transactions = DataFrame(
+            data=[[2, 10.0, "A"], [1, 12.0, "B"]],
+            columns=["amount", "price", "symbol"],
+            index=self.dates[:2],
+        )
+        round_trips = extract_round_trips(transactions)
+        self.assertTrue(round_trips.empty)
+        self.assertIn("pnl", round_trips.columns)
+        self.assertIn("close_dt", round_trips.columns)
+
+        # Still safe when portfolio value is supplied.
+        portfolio_value = Series([100.0, 100.0], index=self.dates[:2])
+        round_trips = extract_round_trips(
+            transactions, portfolio_value=portfolio_value
+        )
+        self.assertTrue(round_trips.empty)
+        self.assertIn("returns", round_trips.columns)
+
     def test_add_closing_trades(self):
         dates = date_range(start="2015-01-01", periods=20)
         transactions = DataFrame(

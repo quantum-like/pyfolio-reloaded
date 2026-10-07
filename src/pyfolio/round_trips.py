@@ -255,7 +255,12 @@ def extract_round_trips(transactions, portfolio_value=None):
                     }
                 )
 
-    roundtrips = pd.DataFrame(roundtrips)
+    if len(roundtrips) == 0:
+        roundtrips = pd.DataFrame(
+            columns=["pnl", "open_dt", "close_dt", "long", "rt_returns", "symbol"]
+        )
+    else:
+        roundtrips = pd.DataFrame(roundtrips)
 
     roundtrips["duration"] = roundtrips["close_dt"].sub(roundtrips["open_dt"])
 
