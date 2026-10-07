@@ -205,51 +205,54 @@ def extract_round_trips(transactions, portfolio_value=None):
 
     for sym, trans_sym in transactions.groupby("symbol"):
         trans_sym = trans_sym.sort_index()
+        # Lots are (signed_price, quantity, open dt) and are matched FIFO.
+        # Keeping the quantity intact matters for fractional shares:
+        # truncating to int understates PnL and drops trades smaller than
+        # one share.
         price_stack = deque()
-        dt_stack = deque()
         trans_sym["signed_price"] = trans_sym.price * np.sign(trans_sym.amount)
-        trans_sym["abs_amount"] = trans_sym.amount.abs().astype(int)
         for dt, t in trans_sym.iterrows():
             if t.price < 0:
                 warnings.warn("Negative price detected, ignoring for" "round-trip.")
                 continue
 
-            indiv_prices = [t.signed_price] * t.abs_amount
+            signed_price = t.signed_price
+            qty_left = abs(t.amount)
+            if qty_left == 0:
+                continue
+
             if (len(price_stack) == 0) or (
-                copysign(1, price_stack[-1]) == copysign(1, t.amount)
+                copysign(1, price_stack[-1][0]) == copysign(1, t.amount)
             ):
-                price_stack.extend(indiv_prices)
-                dt_stack.extend([dt] * len(indiv_prices))
+                price_stack.append((signed_price, qty_left, dt))
             else:
                 # Close round-trip
-                pnl = 0
-                invested = 0
+                pnl = 0.0
+                invested = 0.0
                 cur_open_dts = []
 
-                for price in indiv_prices:
-                    if len(price_stack) != 0 and (
-                        copysign(1, price_stack[-1]) != copysign(1, price)
-                    ):
-                        # Retrieve first dt, stock-price pair from
-                        # stack
-                        prev_price = price_stack.popleft()
-                        prev_dt = dt_stack.popleft()
+                while qty_left > 0 and len(price_stack) != 0 and (
+                    copysign(1, price_stack[-1][0]) != copysign(1, signed_price)
+                ):
+                    prev_price, prev_qty, prev_dt = price_stack.popleft()
+                    matched = min(qty_left, prev_qty)
+                    pnl += -(signed_price + prev_price) * matched
+                    cur_open_dts.append(prev_dt)
+                    invested += abs(prev_price) * matched
+                    qty_left -= matched
+                    prev_qty -= matched
+                    if prev_qty > 0:
+                        price_stack.appendleft((prev_price, prev_qty, prev_dt))
 
-                        pnl += -(price + prev_price)
-                        cur_open_dts.append(prev_dt)
-                        invested += abs(prev_price)
-
-                    else:
-                        # Push additional stock-prices onto stack
-                        price_stack.append(price)
-                        dt_stack.append(dt)
+                if qty_left > 0:
+                    price_stack.append((signed_price, qty_left, dt))
 
                 roundtrips.append(
                     {
                         "pnl": pnl,
                         "open_dt": cur_open_dts[0],
                         "close_dt": dt,
-                        "long": price < 0,
+                        "long": signed_price < 0,
                         "rt_returns": pnl / invested,
                         "symbol": sym,
                     }

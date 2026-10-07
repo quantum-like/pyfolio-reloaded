@@ -256,6 +256,22 @@ class RoundTripTestCase(TestCase):
             expected.sort_index(axis="columns"),
         )
 
+    def test_fractional_shares_are_not_truncated(self):
+        transactions = DataFrame(
+            data=[[1.5, 10.0, "A"], [-0.5, 12.0, "A"], [-1.0, 14.0, "A"]],
+            columns=["amount", "price", "symbol"],
+            index=self.dates[:3],
+        )
+        round_trips = extract_round_trips(transactions)
+
+        # 0.5 shares closed at 12, then the remaining 1.0 at 14.
+        # Truncating amounts to int would keep only the second close and
+        # would price it as a single share bought at 10.
+        self.assertEqual(len(round_trips), 2)
+        self.assertAlmostEqual(round_trips.iloc[0]["pnl"], 0.5 * (12.0 - 10.0))
+        self.assertAlmostEqual(round_trips.iloc[1]["pnl"], 1.0 * (14.0 - 10.0))
+        self.assertAlmostEqual(round_trips["pnl"].sum(), 5.0)
+
     def test_no_closed_round_trips_returns_empty_frame(self):
         transactions = DataFrame(
             data=[[2, 10.0, "A"], [1, 12.0, "B"]],
